@@ -45,13 +45,10 @@ def prepare_demographic_data(demo_file):
     # 구분자 감지
     if '\t' in first_lines[0]:
         sep = '\t'
-        print("구분자: 탭 (\\t)")
     elif ',' in first_lines[0]:
         sep = ','
-        print("구분자: 쉼표 (,)")
     else:
         sep = None
-        print("구분자를 감지할 수 없습니다. 공백으로 시도합니다.")
 
     # print("파일의 총 데이터 수를 계산 중...(파일의 크기가 클 수록 시간이 오래 걸릴 수 있습니다.)")
 

@@ -125,36 +125,48 @@ class MiltonPipeline(BaseEstimator, ClassifierMixin):
         self.classes_ = np.unique(y)
         return self
 
-    def _create_default_estimator(self):
-        """비어있는 데이터셋의 경우 사용할 기본 추정기를 생성"""
-        # 클래스에 따라 적절한 기본 모델 선택
-        from sklearn.dummy import DummyClassifier
-        return DummyClassifier(strategy="prior")
+    # def _create_default_estimator(self):
+    #     """비어있는 데이터셋의 경우 사용할 기본 추정기를 생성"""
+    #     # 클래스에 따라 적절한 기본 모델 선택
+    #     from sklearn.dummy import DummyClassifier
+    #     return DummyClassifier(strategy="prior")
             
+    # def _get_estimator(self, X, y):
+
+    #     # Check if X and y are empty
+    #     if X.shape[0] == 0 or len(y) == 0:
+    #         return self._create_default_estimator()
+
+    #     if isinstance(self.spec, BaseEstimator):
+    #         return self.spec
+    #     elif self.spec is None:
+    #         return XGBClassifier(random_state=randint(), **self.BEST_XGB_PARAMS)
+    #     else:
+    #         hpt = MultiClfOptimizer(spec=self.spec, **self.hpt_args)
+            
+    #         # 클래스 수 확인
+    #         unique_classes = np.unique(y)
+    #         if len(unique_classes) < 2:
+    #             # 단일 클래스만 있는 경우 리샘플링하지 않고 원본 데이터 사용
+    #             logging.warning(f"Single class dataset detected (class {unique_classes[0]}). Skipping resampling.")
+    #             hpt.fit(X, y)
+    #         else:
+    #             # 정상적으로 두 클래스 이상일 경우 리샘플링 진행
+    #             X_rs = resample(X, y, same_size=True)
+    #             hpt.fit(X_rs, y.reindex(X_rs.index))
+                
+    #         return hpt.best_clf_
+
     def _get_estimator(self, X, y):
-
-        # Check if X and y are empty
-        if X.shape[0] == 0 or len(y) == 0:
-            return self._create_default_estimator()
-
         if isinstance(self.spec, BaseEstimator):
             return self.spec
         elif self.spec is None:
             return XGBClassifier(random_state=randint(), **self.BEST_XGB_PARAMS)
         else:
             hpt = MultiClfOptimizer(spec=self.spec, **self.hpt_args)
-            
-            # 클래스 수 확인
-            unique_classes = np.unique(y)
-            if len(unique_classes) < 2:
-                # 단일 클래스만 있는 경우 리샘플링하지 않고 원본 데이터 사용
-                logging.warning(f"Single class dataset detected (class {unique_classes[0]}). Skipping resampling.")
-                hpt.fit(X, y)
-            else:
-                # 정상적으로 두 클래스 이상일 경우 리샘플링 진행
-                X_rs = resample(X, y, same_size=True)
-                hpt.fit(X_rs, y.reindex(X_rs.index))
-                
+            # X_rs = resample(X, y, same_size=True)
+            X_rs = resample(X, y, same_size=False)
+            hpt.fit(X_rs, y.reindex(X_rs.index))
             return hpt.best_clf_
         
     def _ens_predict(self, X):
@@ -292,12 +304,6 @@ class MultiClfOptimizer:
     def fit(self, X, y):
         results = []
         exception = None
-
-        # Check if X and y are empty
-        if X.shape[0] == 0 or len(y) == 0:
-            print("Warning: Empty dataset encountered. Skipping model fitting.")
-            return
-
         X, y = check_X_y(X, y)
         
         if self.grid_search == True:

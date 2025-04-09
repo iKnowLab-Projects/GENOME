@@ -20,7 +20,8 @@ from .utils import (
     unique_boolean_agg,
     stratified_sample,
     process_column_names,
-    convert_df_columns_from_field_ids_to_field_names)
+    convert_df_columns_from_field_ids_to_field_names,
+    convert_id_to_col_name)
 
 
 def h_concat(parts, *args, **kwargs):
@@ -127,46 +128,78 @@ class UkbPatientSelector:
 
     def _load_factors(self, factors):
         fields = self.dd.find(title=sorted(factors.keys()))
-        print(f"fields of _load_factors: {fields}")
         if len(fields) != len(factors):
-            # raise ValueError(f'Ambiguous field names: {sorted(factors)}')
-            if len(fields) > len(factors):
-                fields_list = [field_name for field_name in fields.title.values if field_name in factors]
-            else:
-                fields_list = [field_name for field_name in factors.keys() if field_name in fields.title.values]
-
-            fields = self.dd.find(title=fields_list)
-            print(f"fields of _load_factors after second find: {fields}")
-        
-        schema = self.dd.to_schema(fields)
-        df = self.dst.ukb.read_processed(schema)
-        df = process_column_names(df)
-
-        # convert columns to field names
-        df = convert_df_columns_from_field_ids_to_field_names(df, self.dd)
+            raise ValueError(f'Ambiguous field names: {sorted(factors)}')
+        df = self.dst.ukb.read_processed(self.dd.to_schema(fields))
         
         for fname, nbins in factors.items():
+            field_id = fields.loc[fields.title == fname].field_id.values[0]
+            column = convert_id_to_col_name(field_id)
             if nbins:
-                # Ensure the column exists and has data before calculating quantiles
-                if fname in df and not df[fname].dropna().empty:
-                    # Calculate quantile-based bins
-                    bins = df[fname].quantile(np.linspace(0, 1, nbins + 1))
-                    # Extract bin values and remove duplicates to ensure monotonicity
-                    unique_bins = pd.unique(bins.iloc[:, 0].values)
-                    # Proceed only if we have at least two unique bin edges
-                    if len(unique_bins) > 1:
-                        df[fname] = pd.cut(
-                            df[fname].iloc[:, 0].values,
-                            unique_bins,  # Use unique bins
-                            include_lowest=True)
-                    else:
-                        # Handle cases with too few unique values for binning
-                        # Option 1: Skip binning for this factor
-                        print(f"Warning: Not enough unique values in '{fname}' to create {nbins} bins. Skipping binning.")
-                        # Option 2: Assign a default category or handle differently
-                        # df[fname] = 'single_value_category' 
-                else:
-                     print(f"Warning: Factor '{fname}' not found in data or is empty. Skipping binning.")
+                bins = df[column].quantile(np.linspace(0, 1, nbins + 1))
+                df[column] = pd.cut(df[column], bins, include_lowest=True)
+        return df.dropna().sort_index() 
+
+    # def _load_factors(self, factors):
+    #     fields = self.dd.find(title=sorted(factors.keys()))
+    #     if len(fields) != len(factors):
+    #         # raise ValueError(f'Ambiguous field names: {sorted(factors)}')
+    #         if len(fields) > len(factors):
+    #             fields_list = [field_name for field_name in fields.title.values if field_name in factors]
+    #         else:
+    #             fields_list = [field_name for field_name in factors.keys() if field_name in fields.title.values]
+
+    #         fields = self.dd.find(title=fields_list)
+        
+    #     schema = self.dd.to_schema(fields)
+    #     df = self.dst.ukb.read_processed(schema)
+    #     # df = process_column_names(df)
+
+    #     for fname, nbins in factors.items():
+    #         field_id = fields.loc[fields.title == fname].field_id.values[0]
+
+    #         # --- MODIFICATION: Find the actual column name (e.g., X[ID].0.0) ---
+    #         target_col_pattern_primary = f"X{field_id_int}.0.0"
+    #         target_col_pattern_regex = re.compile(rf"^X{field_id_int}\.\d+\.\d+$")
+            
+    #         if nbins:
+    #             bins = df[field_id].quantile(np.linspace(0, 1, nbins + 1))
+    #             df[field_id] = pd.cut(df[field_id], bins, include_lowest=True)
+    #             unique_bins = pd.unique(bins.iloc[:, 0].values)
+    #             if len(unique_bins) > 1:
+    #                 df[field_id] = pd.cut(
+    #                     df[field_id].iloc[:, 0].values,
+    #                     unique_bins,
+    #                     include_lowest=True
+    #                 )
+    #         else:
+    #             df[field_id] = df[field_id].astype(str)
+
+        # # convert columns to field names
+        # df = convert_df_columns_from_field_ids_to_field_names(df, self.dd)
+        
+        # for fname, nbins in factors.items():
+        #     if nbins:
+        #         # Ensure the column exists and has data before calculating quantiles
+        #         if fname in df and not df[fname].dropna().empty:
+        #             # Calculate quantile-based bins
+        #             bins = df[fname].quantile(np.linspace(0, 1, nbins + 1))
+        #             # Extract bin values and remove duplicates to ensure monotonicity
+        #             unique_bins = pd.unique(bins.iloc[:, 0].values)
+        #             # Proceed only if we have at least two unique bin edges
+        #             if len(unique_bins) > 1:
+        #                 df[fname] = pd.cut(
+        #                     df[fname].iloc[:, 0].values,
+        #                     unique_bins,  # Use unique bins
+        #                     include_lowest=True)
+        #             else:
+        #                 # Handle cases with too few unique values for binning
+        #                 # Option 1: Skip binning for this factor
+        #                 print(f"Warning: Not enough unique values in '{fname}' to create {nbins} bins. Skipping binning.")
+        #                 # Option 2: Assign a default category or handle differently
+        #                 # df[fname] = 'single_value_category' 
+        #         else:
+        #              print(f"Warning: Factor '{fname}' not found in data or is empty. Skipping binning.")
 
         return df.dropna().sort_index()
             

@@ -325,9 +325,7 @@ class ParquetDataSet:
         # unknown_cols = columns.difference(self.schema)
         unknown_cols = [column for column in set(columns) if str(column) not in self.schema.keys()]
         if unknown_cols:
-            # print(f'경고: 인식할 수 없는 컬럼: {sorted(unknown_cols)} (데이터셋: {self.path.name})')
-            # columns = columns - set(unknown_cols)
-            raise ValueError(f'경고: 인식할 수 없는 컬럼: {sorted(unknown_cols)} (데이터셋: {self.path.name})')
+            raise ValueError(f'Warning: Unrecognized columns: {sorted(unknown_cols)} (dataset: {self.path.name})')
         
         def process_raw_data(df):
             # Due to the multiple field instances in UKB, it's 

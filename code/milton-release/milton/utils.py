@@ -60,6 +60,12 @@ def extract_field_id(column_name):
     return new_col
 
 
+def convert_id_to_col_name(id):
+    """Convert a field ID to a column name.
+    """
+    return f"X{id}.0.0"
+
+
 def process_column_names(df):
     """Process the column names of a pandas DataFrame.
     """

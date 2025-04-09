@@ -225,9 +225,10 @@ class Session:
                         data_dict=dd,
                         cached=self.caching)
         
-        # Custom
-        sampling_factors = self.create_sampling_factors_from_dd(dd)
-        print(f"Sampling factors: {sampling_factors}")
+        # sampling_factors = [
+        #     (Col.GENDER, 0),
+        #     # (Col.AGE, 0)
+        # ]
         
         sel = UkbPatientSelector(data_store=dst,
                                  data_dict=dd)
@@ -339,21 +340,3 @@ class Session:
     def _repr_html_(self):
         return self.cluster._repr_html_()
 
-
-    # Custom functions
-    def create_sampling_factors_from_dd(self, dd, default_bins=0):
-        sampling_factors = []
-        fields = dd.df.title.values
-        fields = [field for field in fields if field in Col.all_values()]
-
-        # import csv
-        # with open('ukb_fields.csv', 'w') as f:
-        #     writer = csv.writer(f)
-        #     writer.writerow(df.columns.values)
-        #     writer.writerows(df.values)
-        
-        # Use all fields
-        for field in fields:
-            sampling_factors.append((field, default_bins))
-        
-        return sampling_factors
