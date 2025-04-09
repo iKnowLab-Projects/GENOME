@@ -9,6 +9,9 @@ from pathlib import Path
 from pyarrow.parquet import read_table
 from dask import delayed
 from dask.delayed import Delayed
+import logging
+import dask.bag as db
+import pyarrow.parquet as pq
 
 from .data_desc import (
     DerivedBiomarkers,
@@ -24,7 +27,9 @@ from .utils import (
     all_categorical,
     remap_categories,
     first_non_null_column,
-    extract_field_id)
+    extract_field_id,
+    select_matching_columns
+    )
 from .utils import v_concat_with_categories
 
 
@@ -100,7 +105,7 @@ class UkbFeatureBuilder:
         if df.ndim == 2 and not (all_numeric(df) or all_categorical(df)):
             # smart phenotype evaluation needs string cols unprocessed
             return df
-        # try:
+
         col = first_non_null_column(df)
         col_id = extract_field_id(col.name)
         encoding = self.feature_encodings.get(int(col_id))
@@ -108,8 +113,6 @@ class UkbFeatureBuilder:
         if encoding is not None:
             col = remap_categories(col, encoding)
         return col    
-        # except Exception as ex:
-        #     raise ValueError(f'Error in in feature "{df.columns[0]}"') from ex
         
     def proc_operative_procs(self, df):
         return df.notna().sum(axis=1).astype('float')\
@@ -276,8 +279,7 @@ class ParquetDataSet:
             preprocessed_schema[new_col] = dtype
 
         return preprocessed_schema
-        # return schema
-
+        
     @cached_property
     def index(self):
         """Unique index spanning all partitions of this dataset.
@@ -324,27 +326,8 @@ class ParquetDataSet:
         unknown_cols = [column for column in set(columns) if str(column) not in self.schema.keys()]
         if unknown_cols:
             # print(f'경고: 인식할 수 없는 컬럼: {sorted(unknown_cols)} (데이터셋: {self.path.name})')
-            columns = columns - set(unknown_cols)
-        
-        # # 빈 컬럼 세트 확인
-        # if not columns:
-        #     print(f'오류: 모든 요청된 컬럼이 스키마에 없습니다. 원본 요청: {sorted(columns.union(unknown_cols))}')
-        #     # 빈 데이터프레임 대신 최소한의 인덱스 컬럼만 로드
-        #     if self.index_col and self.index_col in self.schema:
-        #         print(f'인덱스 컬럼({self.index_col})만 로드합니다.')
-        #         columns = {self.index_col}
-        #     else:
-        #         # 대안으로 스키마의 첫 번째 컬럼 사용
-        #         first_col = next(iter(self.schema), None)
-        #         if first_col:
-        #             print(f'스키마의 첫 번째 컬럼({first_col})을 로드합니다.')
-        #             columns = {first_col}
-        #         else:
-        #             # 정말 아무것도 없는 경우 - 빈 DataFrame 반환
-        #             empty_df = pd.DataFrame()
-        #             if self.index_col:
-        #                 empty_df.index.name = self.index_col
-        #             return DfBag([delayed(lambda: empty_df)()])
+            # columns = columns - set(unknown_cols)
+            raise ValueError(f'경고: 인식할 수 없는 컬럼: {sorted(unknown_cols)} (데이터셋: {self.path.name})')
         
         def process_raw_data(df):
             # Due to the multiple field instances in UKB, it's 
@@ -382,25 +365,16 @@ class ParquetDataSet:
         # categorical columns greatly speed up string matching
         # we allow for regex patterns as category column specs
         # to reflect multiple feature versions in UKB data    
-        # return read_table(file_path, columns=sorted(columns))\
-        #     .to_pandas(
-        #         integer_object_nulls=True, 
-        #         date_as_object=False, 
-        #         timestamp_as_object=False, 
-        #         strings_to_categorical=True,
-        #         ignore_metadata=True,
-        #         self_destruct=True)\
-        #     .apply(with_datetime64ns)
+        return read_table(file_path, columns=sorted(columns))\
+            .to_pandas(
+                integer_object_nulls=True, 
+                date_as_object=False, 
+                timestamp_as_object=False, 
+                strings_to_categorical=True,
+                ignore_metadata=True,
+                self_destruct=True)\
+            .apply(with_datetime64ns)
 
-        table = read_table(file_path, columns=sorted(columns))
-        pf = table.to_pandas(
-            integer_object_nulls=True, 
-            date_as_object=False, 
-            timestamp_as_object=False, 
-            strings_to_categorical=True,
-            ignore_metadata=True,
-            self_destruct=True)
-        return pf.apply(with_datetime64ns)
     
     def _read_parquet(self, file_path, columns, index_col, excl_ids):
         cols = {index_col} if index_col else set()
@@ -465,11 +439,12 @@ class ParquetDataSet:
                          new_cols, 
                          self.index_col,
                          self.excl_ids)
-                
+
                 self._cache = DfBag.partitionwise(
                     pd.concat, 
                     [self._cache, new_data], axis=1)\
                     .persist()
+
             else:
                 self._cache = DfBag(self.files)\
                     .map(self._read_parquet, 
@@ -478,38 +453,7 @@ class ParquetDataSet:
                          self.excl_ids)\
                     .persist()
 
-        # columns 집합에 있는 필드 ID와 일치하는 실제 컬럼들을 찾기
-        def select_matching_columns(df):
-            # 실제 데이터프레임 컬럼으로부터 요청된 필드 ID에 해당하는 컬럼들 선택
-            available_columns = []
-            for col in df.columns:
-                # 컬럼 이름에서 필드 ID 추출 (예: "X31.0.0" -> "31")
-                field_id = None
-                if col.startswith('X') or col.startswith('x'):
-                    base_col = col[1:]  # 'X' 제거
-                else:
-                    base_col = col
-                    
-                # '-' 또는 '.' 기준으로 분리하여 필드 ID 추출
-                if '-' in base_col:
-                    field_id = base_col.split('-')[0]
-                elif '.' in base_col:
-                    field_id = base_col.split('.')[0]
-                else:
-                    field_id = base_col
-                    
-                # 숫자로 변환 가능하고 요청된 컬럼 목록에 있으면 선택
-                try:
-                    if int(field_id) in columns:
-                        available_columns.append(col)
-                except ValueError:
-                    continue
-                    
-            return df[sorted(available_columns)] if available_columns else pd.DataFrame(index=df.index)
-        
-        return self._cache.map(select_matching_columns)
-
-        # return self._cache.map(lambda df: df[sorted(columns)])
+        return self._cache.map(select_matching_columns, columns)
 
 
 def _load_opt_outs(location, fname):
@@ -586,7 +530,7 @@ class UkbDataset:
         return self.data_dict.to_schema(self.data_dict[field_ids])
     
     def read_data(self, schema, rows=None, rename_cols=False):
-        """Returns a Dask bag with pandas DataFrames from the UKB parquet files. 
+        """"Returns a Dask bag with pandas DataFrames from the UKB parquet files. 
         
         Parameters
         ----------
@@ -604,7 +548,7 @@ class UkbDataset:
         Returns a Dask bag of DataFrames.
         """
         assert schema is not None
-        
+
         def as_index(obj):
             if isinstance(obj, pd.Series):
                 return obj.index
@@ -612,28 +556,27 @@ class UkbDataset:
                 return pd.Index(obj)
             else:
                 return obj
-        
+
         def ensure_no_duplicates(seq):
             if not isinstance(seq, pd.Series) or not isinstance(seq, pd.Index):
                 seq = pd.Index(seq)
             if seq.duplicated().any():
                 raise ValueError('Duplicates detected in rows or columns.')
-        
+
         # send column and row names to workers as the objects may be large
         ix = None
         colmap = None
         ensure_no_duplicates(schema)
-        
+
         if rename_cols:
             # the result will strip column names of their instance versions
             # leaving just field IDs (so there will be duplicates)
             colmap = {col: col.split('-')[0] for col in schema}
-            # colmap = {col: col.split('.')[0] for col in schema}
         
         if rows is not None:
             ix = as_index(rows)
             ensure_no_duplicates(ix)
-        
+
         return self.dataset.load(columns=schema, rows=ix, colmap=colmap)
         
     def _process_data(self, df_bag, schema, derived):
@@ -652,11 +595,6 @@ class UkbDataset:
         # fields = schema.str.split('-', expand=True)[0].drop_duplicates()
         # field_names = {col: user_name for user_name, col in fields.items()}
         field_names = {col: user_name for user_name, col in schema.items()}
-        # field_names = {}
-        # for user_name, col in fields.items():
-        #     if pd.notna(col):  # Only add mapping for non-NaN fields
-        #         field_names[col] = user_name
-        # print(f"field_names: {field_names}")
         pass
         
         def add_derived_and_reformat(df):
@@ -665,13 +603,14 @@ class UkbDataset:
             # in the schema's index
             # out_df = df[field_names.to_list()]\
             #     .rename(columns=field_names, copy=False)
-            # print(f"dataframe: \n{df}")
+
             valid_columns = [col for col in field_names.keys() if col in df.columns]
-            # print(f"valid_columns: {valid_columns}")
+
             if not valid_columns:
-                # print("No valid columns found")
                 return df
+
             out_df = df[valid_columns].rename(columns=field_names, copy=False)
+
             if derived:
                 out_df = pd.concat([out_df, derived.calculate(df)], axis=1)
             
@@ -709,27 +648,9 @@ class UkbDataset:
         else:
             ext_schema = schema
         df_bag = self.read_data(ext_schema, rows=rows)
-        
-        # 데이터 확인
-        # try:
-        if hasattr(df_bag, 'seq') and df_bag.seq:
-            sample = df_bag.seq[0].compute()
-            if sample.empty:
-                raise Exception("경고: 로드된 데이터가 비어 있습니다!")
-        # except Exception as e:
-        #     raise Exception(f"데이터 확인 중 오류 발생: {e}")
-        
         df_bag = self._process_data(df_bag, schema, derived, **kwargs)
-        
-        if sync:
-            # try:
-            result = df_bag.concat().compute()
-            return result
-            # except Exception as e:
-            #     raise Exception(f"concat 오류: {e}")
-        
-        return df_bag
-        
+        return df_bag if not sync else df_bag.concat().compute()
+
     def read_index(self):
         """Returns pd.Index with all of the UKB subject IDs. Respects consent
         withdrawal data if defined.

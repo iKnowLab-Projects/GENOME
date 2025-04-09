@@ -127,6 +127,7 @@ class UkbPatientSelector:
 
     def _load_factors(self, factors):
         fields = self.dd.find(title=sorted(factors.keys()))
+        print(f"fields of _load_factors: {fields}")
         if len(fields) != len(factors):
             # raise ValueError(f'Ambiguous field names: {sorted(factors)}')
             if len(fields) > len(factors):
@@ -135,6 +136,7 @@ class UkbPatientSelector:
                 fields_list = [field_name for field_name in factors.keys() if field_name in fields.title.values]
 
             fields = self.dd.find(title=fields_list)
+            print(f"fields of _load_factors after second find: {fields}")
         
         schema = self.dd.to_schema(fields)
         df = self.dst.ukb.read_processed(schema)
@@ -145,12 +147,28 @@ class UkbPatientSelector:
         
         for fname, nbins in factors.items():
             if nbins:
-                bins = df[fname].quantile(np.linspace(0, 1, nbins + 1))
-                df[fname] = pd.cut(
-                    df[fname].iloc[:, 0].values, 
-                    bins.iloc[:, 0].values, 
-                    include_lowest=True)
-        return df.dropna().sort_index() 
+                # Ensure the column exists and has data before calculating quantiles
+                if fname in df and not df[fname].dropna().empty:
+                    # Calculate quantile-based bins
+                    bins = df[fname].quantile(np.linspace(0, 1, nbins + 1))
+                    # Extract bin values and remove duplicates to ensure monotonicity
+                    unique_bins = pd.unique(bins.iloc[:, 0].values)
+                    # Proceed only if we have at least two unique bin edges
+                    if len(unique_bins) > 1:
+                        df[fname] = pd.cut(
+                            df[fname].iloc[:, 0].values,
+                            unique_bins,  # Use unique bins
+                            include_lowest=True)
+                    else:
+                        # Handle cases with too few unique values for binning
+                        # Option 1: Skip binning for this factor
+                        print(f"Warning: Not enough unique values in '{fname}' to create {nbins} bins. Skipping binning.")
+                        # Option 2: Assign a default category or handle differently
+                        # df[fname] = 'single_value_category' 
+                else:
+                     print(f"Warning: Factor '{fname}' not found in data or is empty. Skipping binning.")
+
+        return df.dropna().sort_index()
             
     @staticmethod
     def _agg_result(bool_series):
@@ -238,6 +256,7 @@ class UkbPatientSelector:
         codes = set(codes)
         ctl_exclusions = set(ctl_exclusions or set()).difference(codes)
         fields = self.dd.find(field_id=list(ukb_fields or self.diag_fields))
+        print(f"fields of eval_icd10: {fields}")
         schema = self.dd.to_schema(fields)
         
         def find_codes(df, name):

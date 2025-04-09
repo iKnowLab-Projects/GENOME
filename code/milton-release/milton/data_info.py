@@ -40,7 +40,8 @@ class Orient(Enum):
 UKB_DIR = 'ukb.parquet'
     
 # default name of the file with ID list of subjects who opted-out from the UKB
-UKB_OPT_OUT_SUBJECTS = 'ukb-opt-outs.csv'
+# UKB_OPT_OUT_SUBJECTS = 'ukb-opt-outs.csv'
+UKB_OPT_OUT_SUBJECTS = None
 
 
 def _get_dummy_data_location():

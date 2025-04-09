@@ -77,8 +77,9 @@ def prepare_demographic_data(demo_file):
     
     # user_input = input(f"총 {total_rows}개의 행이 있습니다. 전체 데이터를 로드하시겠습니까? (1: 전체 데이터 로드, 2: 일부 데이터 로드): ")
     user_input = '2'
-    rows_to_load = 100
+    rows_to_load = 1000
     if user_input == '1':
+        print("전체 데이터를 로드합니다...")
         if sep:
             df = pd.read_csv(demo_file, sep=sep)
         else:
@@ -95,6 +96,7 @@ def prepare_demographic_data(demo_file):
         #     except ValueError:
         #         print("유효한 숫자를 입력해주세요.")
         
+        # rows_to_load = 10000 # 예시: 로드할 행 수를 늘림 (실제 메모리에 맞게 조절 필요)
         print(f"처음 {rows_to_load}개의 행만 로드합니다...")
         if sep:
             df = pd.read_csv(demo_file, sep=sep, nrows=rows_to_load)
@@ -137,7 +139,7 @@ def prepare_demographic_data(demo_file):
     
     # 필요한 열 확인 및 전처리
     # 실제 데이터 구조에 따라 이 부분을 조정해야 할 수 있음
-    required_columns = ['eid']  # 최소한 ID 열이 필요함
+    required_columns = ['eid'] # 최소한 ID 열이 필요함
     
     # 필요한 열이 있는지 확인
     for col in required_columns:
@@ -195,8 +197,8 @@ def prepare_demographic_data(demo_file):
     # subject_ids = pd.DataFrame(subject_ids, columns=['eid'])
     # subject_ids.to_csv(opt_outs, index=False)
 
-    opt_outs = os.path.join(os.path.dirname(demo_file), "ukb-opt-outs.csv")
-    pd.DataFrame(df['eid'].unique()).to_csv(opt_outs, index=False)
+    # opt_outs = os.path.join(os.path.dirname(demo_file), "ukb-opt-outs.csv")
+    # pd.DataFrame(df['eid'].unique()).to_csv(opt_outs, index=False)
 
     return df, output_dir
 
@@ -224,7 +226,7 @@ def prepare_genomic_data(genome_base_path):
     # 확장자가 있는 파일 중에서 공통된 베이스 이름 찾기
     for file in files_in_dir:
         if file.endswith('.bed'):
-            base_name = file[:-4]  # .bed 확장자 제거
+            base_name = file[:-4] # .bed 확장자 제거
             base_file_found = True
             break
     
@@ -281,20 +283,20 @@ def make_v16_config(*, ancestry=None, ctl_ratio=19, time_model=ModelType.STANDAR
         feature_selection_iterations = ctl_ratio
     
     # 특성 집합 설정
-    if feature_set == '67bm':  # 67 바이오마커만
+    if feature_set == '67bm': # 67 바이오마커만
         conf.features.biomarkers = True
         conf.features.respiratory = True
         conf.features.overall_health = True
         conf.features.olink = False
         conf.features.olink_covariates = False
         
-    elif feature_set == 'olink-only':  # olink 단백질체만
+    elif feature_set == 'olink-only': # olink 단백질체만
         conf.features.biomarkers = False
         conf.features.olink = True
         conf.features.olink_covariates = True
 
         conf().feature_selection.iterations = feature_selection_iterations
-        conf().feature_selection.preserved = [  # 모든 공변량
+        conf().feature_selection.preserved = [ # 모든 공변량
             Col.AGE, 
             Col.GENDER, 
             'Alcohol intake frequency.',
@@ -305,15 +307,15 @@ def make_v16_config(*, ancestry=None, ctl_ratio=19, time_model=ModelType.STANDAR
             'Body mass index (BMI)'
         ]
     
-    elif feature_set == 'olink-and-67bm':  # olink와 67 바이오마커
+    elif feature_set == 'olink-and-67bm': # olink와 67 바이오마커
         conf.features.biomarkers = True
         conf.features.respiratory = True
         conf.features.overall_health = True
         conf.features.olink = True
         conf.features.olink_covariates = True
 
-        conf().feature_selection.iterations = feature_selection_iterations  # 특성 선택을 위한 반복 횟수
-        conf().feature_selection.preserved = [  # 모든 공변량
+        conf().feature_selection.iterations = feature_selection_iterations # 특성 선택을 위한 반복 횟수
+        conf().feature_selection.preserved = [ # 모든 공변량
             Col.AGE, 
             Col.GENDER, 
             'Alcohol intake frequency.',
@@ -352,7 +354,7 @@ def make_v16_config(*, ancestry=None, ctl_ratio=19, time_model=ModelType.STANDAR
         'n_estimators': [50, 100, 200, 300],
     }
     conf().analysis.hyper_param_metric = 'roc_auc' 
-    conf().analysis.n_replicas = 10  # XGBoost 훈련을 위한 복제본 수
+    conf().analysis.n_replicas = 10 # XGBoost 훈련을 위한 복제본 수
     conf().analysis.evaluate_all_replicas = True
     
     conf().analysis.model_type = time_model
@@ -400,19 +402,19 @@ def main():
     # MILTON 세션 시작
     print("MILTON 세션을 시작합니다...")
     sess = Session('local', 
-                    n_workers=4,  # 로컬 머신 코어 수에 맞게 조정
+                    n_workers=4, # 로컬 머신 코어 수에 맞게 조정
                     memory='4G',
                     data_location=os.path.dirname(demo_processed_dir),
                     caching=False)
     
     # 분석 설정
-    ctl_ratio = 9   # 케이스 대비 컨트롤 비율
-    time_model = 'time_agnostic'  # 시간 모델 유형 ('time_agnostic', 'prognostic', 'diagnostic')
-    # ancestry_name = 'EAS'  # 동아시아 인종 (AFR, AMR, EAS, EUR, SAS 중 하나)
-    feature_set = '67bm'  # 특성 집합 ('67bm', 'olink-only', 'olink-and-67bm')
+    ctl_ratio = 9 # 케이스 대비 컨트롤 비율
+    time_model = 'time_agnostic' # 시간 모델 유형 ('time_agnostic', 'prognostic', 'diagnostic')
+    # ancestry_name = 'EAS' # 동아시아 인종 (AFR, AMR, EAS, EUR, SAS 중 하나)
+    feature_set = '67bm' # 특성 집합 ('67bm', 'olink-only', 'olink-and-67bm')
     
     # 분석할 ICD10 코드 (질병 코드)
-    code = 'E11'  # 당뇨병 관련 코드 (예시)
+    code = 'E11' # 당뇨병 관련 코드 (예시)
     
     # 결과 디렉토리 설정
     out_dir = os.path.join(OUTPUT_BASE_PATH, code, feature_set, time_model)

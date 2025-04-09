@@ -216,25 +216,94 @@ class Evaluator:
                 n_replicas=self._conf.feature_selection.iterations)
         full_cohort = pd.concat(cohorts).groupby(level=0).max()
         dt = DataTransformer(**self._conf.preproc.asdict())
-        # data = self.load_data(rows=full_cohort.index).pipe(dt.fit_transform)
+        logging.info(f"전체 코호트({len(full_cohort)}명)에 대한 데이터 로딩 시도...")
+        # load_data는 read_processed(sync=False)를 호출하여 dask bag을 반환할 수 있음
         data = self.load_data(rows=full_cohort.index)
-        # if data.empty:
-        #     logging.warning("No data found for this iteration, skipping...")
-        # else:
-        data = data.pipe(dt.fit_transform)
+
+        # Dask Bag/DataFrame이 유효한지 기본적인 확인
+        if data is None or (hasattr(data, 'npartitions') and data.npartitions == 0):
+             logging.error("특성 선택을 위한 초기 데이터 로딩 실패: 반환된 데이터가 비어있거나 유효하지 않습니다.")
+             # 분석 진행 불가 상황이므로 예외 발생
+             raise MiltonException("Feature selection cannot proceed: No data loaded for the initial cohort.")
+
+        logging.info("데이터 변환 시작...")
+        try:
+            # DataTransformer가 Dask 객체를 처리하고 결과를 반환 (Pandas DF 또는 Dask DF)
+            data = data.pipe(dt.fit_transform)
+            # 변환 후 데이터가 비었는지 확인 (Dask DF일 경우 compute 필요)
+            if hasattr(data, 'compute'): # Dask DataFrame인지 확인
+                computed_len = len(data) # len()은 compute를 트리거할 수 있음
+                logging.info(f"데이터 변환 완료 (Dask). 변환된 데이터 길이: {computed_len}")
+                if computed_len == 0:
+                     logging.error("특성 선택을 위한 데이터 변환 후 결과가 비어 있습니다 (Dask).")
+                     raise MiltonException("Feature selection cannot proceed: Transformed data is empty.")
+            elif hasattr(data, 'empty'): # Pandas DataFrame인지 확인
+                 logging.info(f"데이터 변환 완료 (Pandas). 변환된 데이터 형태: {data.shape}")
+                 if data.empty:
+                      logging.error("특성 선택을 위한 데이터 변환 후 결과가 비어 있습니다 (Pandas).")
+                      raise MiltonException("Feature selection cannot proceed: Transformed data is empty.")
+            else:
+                 logging.warning("변환된 데이터 타입을 확인할 수 없습니다.")
+
+        except Exception as e:
+            logging.error(f"데이터 변환 중 오류 발생: {e}", exc_info=True)
+            raise MiltonException(f"Feature selection failed during data transformation: {e}")
+
         all_features = set(self._conf.feature_selection.preserved)
+        logging.info(f"총 {len(cohorts)}개의 코호트에 대해 특성 선택 반복 시작...")
+        skipped_cohorts = 0
         for i, y in enumerate(cohorts):
-            X = data.loc[y.index]
-            # if X.empty:
-            #     logging.warning(f"No data found for cohort {i}, skipping...")
-            #     continue  # Skip this iteration if the dataset is empty
-            features = self._do_select_features(X, y)
-            logging.info(
-            f'Iteration {i} of feature selection selected: {sorted(features)}')
-            all_features |= features
-        if len(all_features) == 2:
-            raise MiltonException(
-                'Feature selection algorithm failed to select features.')
+            logging.debug(f"특성 선택 반복 {i+1}/{len(cohorts)}, 코호트 크기: {len(y)}")
+
+            # 코호트 인덱스가 실제 변환된 데이터에 존재하는지 확인
+            valid_index = y.index.intersection(data.index)
+            if len(valid_index) == 0:
+                logging.warning(f"코호트 {i}에 대한 유효한 인덱스가 변환된 데이터에 없습니다. 건너<0xEB><0x9A><0x84니다.")
+                skipped_cohorts += 1
+                continue
+
+            # 유효한 인덱스로 데이터 필터링
+            X = data.loc[valid_index]
+            y_filtered = y.loc[valid_index] # 타겟 변수도 동일하게 필터링
+
+            # 필터링된 데이터(X)가 비었는지 확인
+            if X.empty:
+                logging.warning(f"특성 선택 반복 {i}에 사용될 데이터(X)가 비어 있습니다. 코호트 인덱스 수: {len(y.index)}, 유효 인덱스 수: {len(valid_index)}. 건너<0xEB><0x9A><0x84니다...")
+                skipped_cohorts += 1
+                continue  # 데이터가 없으면 이 반복 건너뛰기
+
+            # 필터링된 타겟(y_filtered)에 여전히 두 개 이상의 클래스가 있는지 확인
+            if y_filtered.nunique() < 2:
+                logging.warning(f"특성 선택 반복 {i}에서 필터링된 타겟 변수(y)에 클래스가 하나뿐입니다 ({y_filtered.unique()}). 건너<0xEB><0x9A><0x84니다...")
+                skipped_cohorts += 1
+                continue
+
+            try:
+                # 실제 특성 선택 수행
+                features = self._do_select_features(X, y_filtered) # 필터링된 X, y 사용
+                logging.info(
+                f'Iteration {i} of feature selection selected: {sorted(features)}')
+                all_features |= features
+            except Exception as e:
+                # 특성 선택 중 발생한 예외 처리 (예: XGBoost의 ValueError)
+                logging.error(f"특성 선택 반복 {i} 중 '_do_select_features'에서 오류 발생: {e}", exc_info=False) # 상세 traceback은 생략 가능
+                logging.warning(f"특성 선택 반복 {i} 실패. 다음 반복으로 계속합니다.")
+                skipped_cohorts += 1
+                continue # 오류 발생 시 다음 반복으로 넘어감
+
+        logging.info(f"총 {len(cohorts)}번의 반복 중 {skipped_cohorts}번 건너<0xEB><0x9A><0x84음.")
+        # ... existing code ...
+        # 너무 많은 반복이 건너뛰어졌는지 확인하는 로직 추가 가능
+        if len(all_features) == len(self._conf.feature_selection.preserved): # 초기값과 같다면 (preserved 외에 추가된 피처가 없다면)
+             # 모든 반복이 실패했거나 유의미한 피처를 선택하지 못한 경우
+             logging.error('특성 선택 알고리즘이 유의미한 특성을 선택하지 못했습니다 (모든 반복 실패 또는 preserved 피처만 남음).')
+             raise MiltonException(
+                 'Feature selection algorithm failed to select any valid features beyond the preserved set.')
+
+        # if len(all_features) == 2: # 원본 코드의 이 조건은 너무 제한적일 수 있음 (AGE, GENDER만 남는 경우?)
+        #     raise MiltonException(
+        #         'Feature selection algorithm failed to select features.')
+
         self.selected_features = sorted(all_features)
         logging.info(f'Final feature selection: {self.selected_features}')
         cases = full_cohort.index[full_cohort == True]

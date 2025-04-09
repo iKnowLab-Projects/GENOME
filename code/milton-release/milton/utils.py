@@ -13,6 +13,36 @@ import re
 from .random import RND
 
 
+# columns 집합에 있는 필드 ID와 일치하는 실제 컬럼들을 찾기
+def select_matching_columns(df, columns):
+    # 실제 데이터프레임 컬럼으로부터 요청된 필드 ID에 해당하는 컬럼들 선택
+    available_columns = []
+    for col in df.columns:
+        # 컬럼 이름에서 필드 ID 추출 (예: "X31.0.0" -> "31")
+        field_id = None
+        if col.startswith('X') or col.startswith('x'):
+            base_col = col[1:]  # 'X' 제거
+        else:
+            base_col = col
+            
+        # '-' 또는 '.' 기준으로 분리하여 필드 ID 추출
+        if '-' in base_col:
+            field_id = base_col.split('-')[0]
+        elif '.' in base_col:
+            field_id = base_col.split('.')[0]
+        else:
+            field_id = base_col
+            
+        # 숫자로 변환 가능하고 요청된 컬럼 목록에 있으면 선택
+        try:
+            if field_id in columns or int(field_id) in columns:
+                available_columns.append(col)
+        except ValueError:
+            continue
+            
+    return df[sorted(available_columns)] if available_columns else pd.DataFrame(index=df.index)
+
+
 def extract_field_id(column_name):
     """Extract the field ID from a column name.
         For example, X31.0.0 -> 31
@@ -336,48 +366,109 @@ def find_any_values(df, val_list, aggregate=True):
         return find_values(df, val_list, aggregate)
 
 
-def find_values(df, val_list, aggregate=True):
-    """Returns a series indexed like df, which has a value True 
-    when one of the columns in df contains a value from val_list
-    in the corresponding row, or a boolean data frame when aggregate 
-    is False.
+# def find_values(df, values, aggregate=True):
+    # """Returns a series indexed like df, which has a value True 
+    # when one of the columns in df contains a value from val_list
+    # in the corresponding row, or a boolean data frame when aggregate 
+    # is False.
 
-    Partial matching support:
-        Each value in val_list may end with '*', meaning that the
-        matching will be done on the string preceding the asterisk
-        (regardless of its contents).
+    # Partial matching support:
+    #     Each value in val_list may end with '*', meaning that the
+    #     matching will be done on the string preceding the asterisk
+    #     (regardless of its contents).
         
+    # Parameters
+    # ----------
+    # df : the data frame with all categorical columns
+    # val_list : list of strings to search for (each possibly ending with *)
+    # aggregate : when False, return a boolean data frame of the same shape
+    #   as df, indicating where any of the listed patterns was found.
+    # """
+    # df = convert_df_dtypes_to_categorical(df)
+    # ensure_only_cat_columns(df)
+
+    # simple_vals = [v for v in values if not v.endswith('*')]
+    # prefixes = [re.escape(v[:-1]) for v in values if v.endswith('*')]
+    # parts = []
+    
+    # def maybe_aggregate(s):
+    #     # For a boolean series, max() is equivalent to any()
+    #     return s.max() if aggregate else s 
+
+    # if simple_vals:
+    #     part = df.apply(lambda s: s.isin(values))
+    #     parts.append(maybe_aggregate(part))
+
+    # if prefixes:
+    #     # fuse all prefixes (if many) into a single regex for speed
+    #     pattern = f'^({"|".join(prefixes)})'
+    #     part = df.apply(lambda s: s.str.match(pattern).fillna(False))
+    #     parts.append(maybe_aggregate(part))
+
+    # if len(parts) == 2:
+    #     return parts[0] | parts[1]
+    # else:
+    #     return parts[0]
+
+def find_values(df, values, aggregate=True):
+    """Find rows where any column contains any value from the `values` collection.
+
     Parameters
     ----------
-    df : the data frame with all categorical columns
-    val_list : list of strings to search for (each possibly ending with *)
-    aggregate : when False, return a boolean data frame of the same shape
-      as df, indicating where any of the listed patterns was found.
+    df : pd.DataFrame
+    values : collection
+        values to search for
+    aggregate : bool
+        whether to aggregate results per row (True) or return a boolean df (False)
+        
+    Returns
+    -------
+    a boolean pd.Series when aggregate is True, or boolean pd.DataFrame otherwise
     """
-    df = convert_df_dtypes_to_categorical(df)
-    ensure_only_cat_columns(df)
-
-    simple_vals = [v for v in val_list if not v.endswith('*')]
-    prefixes = [re.escape(v[:-1]) for v in val_list if v.endswith('*')]
-    parts = []
-    
-    def maybe_aggregate(df):
-        return df.max(axis=1) if aggregate else df
-
-    if simple_vals:
-        part = df.apply(lambda s: s.isin(val_list))
-        parts.append(maybe_aggregate(part))
-
-    if prefixes:
-        # fuse all prefixes (if many) into a single regex for speed
-        pattern = f'^({"|".join(prefixes)})'
-        part = df.apply(lambda s: s.str.match(pattern).fillna(False))
-        parts.append(maybe_aggregate(part))
-
-    if len(parts) == 2:
-        return parts[0] | parts[1]
+    if not isinstance(values, (set, list, tuple)):
+        values = {values}
     else:
-        return parts[0]
+        # Ensure values in the set are hashable and comparable
+        try:
+            values = set(values)
+        except TypeError:
+            # Handle unhashable items if necessary, e.g., convert to string
+            values = set(map(str, values))
+
+
+    # No longer use maybe_aggregate helper function
+
+    bool_parts = []
+    for name, col in df.items():
+        # Calculate boolean series indicating presence of values in the column
+        try:
+            # Attempt direct comparison first
+            bool_part = col.isin(values)
+        except TypeError:
+            # Fallback to string comparison if direct comparison fails
+            try:
+                 # Ensure values are also strings for comparison
+                 str_values = set(map(str, values))
+                 bool_part = col.astype(str).isin(str_values)
+            except Exception as e:
+                 # If even string conversion/comparison fails, mark column as non-matching
+                 print(f"Warning: Could not compare values in column '{name}'. Error: {e}")
+                 bool_part = pd.Series(False, index=df.index)
+
+        bool_parts.append(bool_part)
+
+    if not bool_parts:
+         return pd.Series(False, index=df.index) # Return empty boolean series if df was empty
+
+    # Concatenate all boolean series horizontally
+    res_df = pd.concat(bool_parts, axis=1)
+
+    if aggregate:
+        # Aggregate across rows: True if any column in the row matched
+        return res_df.any(axis=1)
+    else:
+        # Return the full boolean dataframe
+        return res_df
     
     
 @numba.njit
