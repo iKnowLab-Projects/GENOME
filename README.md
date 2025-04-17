@@ -113,9 +113,28 @@ python process_ukb_data.py
 *   `qv_significance.parquet`: (QV 분석 활성화 시) 유전자 기반 희귀 변이 분석 결과.
 *   `stuff.pickle`: ROC/PR 곡선 데이터 등 추가 정보.
 
-## 5. 이슈 사항
 
-*   **모델 훈련/평가 오류**: 현재 모델 훈련 또는 평가 단계에서 `ValueError('Invalid classes inferred from unique values of y. Expected: [0], got [1]')` 오류가 발생하며 실패하는 경우가 있습니다. 이는 해당 단계에 전달되는 타겟 변수(`y`, 즉 코호트 정보)에 컨트롤 그룹(클래스 `0`)이 포함되지 않고 케이스 그룹(클래스 `1`)만 존재하기 때문에 발생합니다. 이 문제의 근본 원인은 파이프라인 앞단의 코호트 생성 (`UkbPatientSelector`) 또는 데이터 처리 과정에서 컨트롤 그룹이 누락되는 것에 있는 것으로 추정됩니다. 정확한 원인 파악 및 해결을 위한 디버깅 작업이 진행 중입니다. 분석 실행 중 관련 오류가 발생하면 이전 단계의 로그(특히 `patsel.py`의 `_add_controls` 관련 로그)를 확인하여 문제 지점을 파악하는 데 도움을 받을 수 있습니다.
+## 5. 주요 디버깅 기록 및 이슈 사항
+
+분석 파이프라인 구축 과정에서 발생했던 주요 문제들과 해결 과정을 기록합니다.
+
+*   **모델 훈련/평가 오류 (Classifier `fit` 실패)**:
+    *   **증상**: 모델 훈련 (`MiltonPipeline.fit`) 또는 평가(`_eval_replica`) 단계에서 `ValueError('Invalid classes inferred from unique values of y. Expected: [0], got [1]')` 오류 발생. 이는 타겟 변수 `y` (코호트 정보)에 컨트롤 그룹(클래스 `0`) 없이 케이스 그룹(클래스 `1`)만 전달되었기 때문입니다.
+    *   **원인 추정**: 파이프라인 앞단의 코호트 생성 (`UkbPatientSelector`) 시 컨트롤 그룹 샘플링/추가 (`_add_controls`, `_stratified_sample`) 단계에서 문제가 발생하여 컨트롤 그룹이 누락되는 것으로 파악되었습니다. 특히, 층화 샘플링 요인(`sampling_factors`) 로딩 (`_load_factors`) 실패가 컨트롤 그룹 매칭 실패로 이어질 수 있습니다.
+    *   **임시 해결**: `classification.py`의 `MiltonPipeline._get_estimator` 함수 내 `resample` 호출 시 `same_size=True`를 `same_size=False`로 변경하여 클래스 불균형을 허용하도록 수정했습니다. 이는 근본적인 컨트롤 누락 문제를 해결하는 것은 아니지만, `resample` 함수 자체의 오류는 방지합니다. (근본 원인 해결을 위한 추가 디버깅 필요)
+
+*   **데이터 로딩 시 Empty DataFrame 반환**:
+    *   **증상**: 데이터 로딩 및 전처리 후 실제 Classifier에 전달되기 전 단계 (`data_source.py`의 특정 지점)에서 DataFrame의 내용은 비어있고 컬럼 정보만 남는 현상 발생. Dask 객체의 경우 `.compute()` 실행 시 빈 DataFrame 반환.
+    *   **원인**: `ParquetDataSet` 초기화 시 `opt_outs` (분석 제외 대상자) 목록을 읽어오는 과정에서 발생. `data_info.py`의 `UKB_OPT_OUT_SUBJECTS` 설정 파일 (`ukb-opt-outs.csv`)에 실수로 **모든 대상자 ID**를 넣어, `ParquetDataSet._load_cached()` 내부의 `read_parquet` 호출 시 `excl_ids` 인자에 의해 모든 데이터가 필터링되었습니다.
+    *   **해결**: `data_info.py`에서 `UKB_OPT_OUT_SUBJECTS = None`으로 설정하여 해당 제외 로직을 비활성화했습니다.
+
+*   **컬럼명 형식 불일치 문제**:
+    *   **문제**: 원본 Parquet 파일의 컬럼명 (예: `X31.0.0`)과 MILTON 내부 로직(특히 데이터 사전 기반 처리)에서 기대하는 처리된 필드 ID (예: `31`) 형식이 혼용되어 데이터 접근 및 처리에 오류 발생.
+    *   **해결**: 데이터 로딩 시점에는 원본 컬럼명을 유지하고 (`data_source.py` 수정), 각 함수에서 필요에 따라 필드 ID를 기반으로 해당 원본 컬럼을 찾아 사용하도록 로직을 수정했습니다 (`patsel.py`, `utils.py` 등). 예를 들어, `patsel.py`의 `_load_factors`는 필드 ID로 원본 컬럼(`X[ID].0.0` 등)을 찾아 처리하고, 최종 결과는 원본 컬럼명으로 반환하도록 수정했습니다. (`utils.py`의 `process_column_names`는 최종적으로 컬럼명을 변경해야 할 때 사용될 수 있습니다.)
+
+*   **Categorical 데이터 타입 강제**:
+    *   **문제**: 일부 데이터 처리 또는 모델링 단계에서 명시적으로 Categorical 데이터 타입을 요구하는 경우 발생.
+    *   **해결**: `utils.py`에 `convert_df_dtypes_to_categorical` 함수를 추가하고, `process_ukb_data.py` 등 필요한 지점에서 호출하여 DataFrame 전체 또는 특정 컬럼의 타입을 'category'로 일괄 변환했습니다.
 
 
 ## (선택 사항) 데이터 탐색
