@@ -50,31 +50,31 @@ def prepare_demographic_data(demo_file):
     else:
         sep = None
 
-    # print("파일의 총 데이터 수를 계산 중...(파일의 크기가 클 수록 시간이 오래 걸릴 수 있습니다.)")
+    print("파일의 총 데이터 수를 계산 중...(파일의 크기가 클 수록 시간이 오래 걸릴 수 있습니다.)")
 
-    # file_size = os.path.getsize(demo_file)
-    # with open(demo_file, 'r', encoding='utf-8') as f:
-    #     total_rows = 0
-    #     bytes_read = 0
-    #     last_percent = 0
+    file_size = os.path.getsize(demo_file)
+    with open(demo_file, 'r', encoding='utf-8') as f:
+        total_rows = 0
+        bytes_read = 0
+        last_percent = 0
         
-    #     header = next(f)
-    #     bytes_read += len(header.encode('utf-8'))
+        header = next(f)
+        bytes_read += len(header.encode('utf-8'))
         
-    #     for line in f:
-    #         total_rows += 1
-    #         bytes_read += len(line.encode('utf-8'))
+        for line in f:
+            total_rows += 1
+            bytes_read += len(line.encode('utf-8'))
             
-    #         current_percent = int(bytes_read * 100 / file_size)
-    #         if current_percent >= last_percent + 10:
-    #             print(f"진행 상황: {current_percent}% (현재까지 {total_rows}행 처리)")
-    #             last_percent = current_percent
+            current_percent = int(bytes_read * 100 / file_size)
+            if current_percent >= last_percent + 10:
+                print(f"진행 상황: {current_percent}% (현재까지 {total_rows}행 처리)")
+                last_percent = current_percent
 
-    # print(f"총 데이터 수: {total_rows}")
+    print(f"총 데이터 수: {total_rows}")
     
-    # user_input = input(f"총 {total_rows}개의 행이 있습니다. 전체 데이터를 로드하시겠습니까? (1: 전체 데이터 로드, 2: 일부 데이터 로드): ")
-    user_input = '2'
-    rows_to_load = 1000
+    user_input = input(f"총 {total_rows}개의 행이 있습니다. 전체 데이터를 로드하시겠습니까? (1: 전체 데이터 로드, 2: 일부 데이터 로드): ")
+    # user_input = '2'
+    # rows_to_load = 1000
     if user_input == '1':
         print("전체 데이터를 로드합니다...")
         if sep:
@@ -82,18 +82,17 @@ def prepare_demographic_data(demo_file):
         else:
             df = pd.read_csv(demo_file, sep=' ')
     elif user_input == '2':
-        # while True:
-        #     try:
-        #         rows_to_load = input(f"몇 개의 데이터를 로드하시겠습니까? (1 ~ {total_rows} 사이의 수): ")
-        #         rows_to_load = int(rows_to_load)
-        #         if 1 <= rows_to_load <= total_rows:
-        #             break
-        #         else:
-        #             print(f"1과 {total_rows} 사이의 값을 입력해주세요.")
-        #     except ValueError:
-        #         print("유효한 숫자를 입력해주세요.")
+        while True:
+            try:
+                rows_to_load = input(f"몇 개의 데이터를 로드하시겠습니까? (1 ~ {total_rows} 사이의 수): ")
+                rows_to_load = int(rows_to_load)
+                if 1 <= rows_to_load <= total_rows:
+                    break
+                else:
+                    print(f"1과 {total_rows} 사이의 값을 입력해주세요.")
+            except ValueError:
+                print("유효한 숫자를 입력해주세요.")
         
-        # rows_to_load = 10000 # 예시: 로드할 행 수를 늘림 (실제 메모리에 맞게 조절 필요)
         print(f"처음 {rows_to_load}개의 행만 로드합니다...")
         if sep:
             df = pd.read_csv(demo_file, sep=sep, nrows=rows_to_load)
@@ -167,33 +166,32 @@ def prepare_demographic_data(demo_file):
     part_size = len(df) // 10
     output_paths = []
     
-    # for i in range(10):
-    #     start_idx = i * part_size
-    #     end_idx = (i + 1) * part_size if i < 9 else len(df)
-    #     part_df = df.iloc[start_idx:end_idx]
-    #     part_file = os.path.join(output_dir, f"part-{i}.parquet")
-    #     part_df.to_parquet(part_file, index=False)
-    #     output_paths.append(part_file)
-    #     print(f"파트 {i} 저장 완료 ({(i+1)*10}%): {part_file} (행 수: {len(part_df)})")
+    for i in range(10):
+        start_idx = i * part_size
+        end_idx = (i + 1) * part_size if i < 9 else len(df)
+        part_df = df.iloc[start_idx:end_idx]
+        part_file = os.path.join(output_dir, f"part-{i}.parquet")
+        part_df.to_parquet(part_file, index=False)
+        output_paths.append(part_file)
+        print(f"파트 {i} 저장 완료 ({(i+1)*10}%): {part_file} (행 수: {len(part_df)})")
 
-    output_path = os.path.join(output_dir, "part-0.parquet")
-    df.to_parquet(output_path, index=False)
+    # output_path = os.path.join(output_dir, "part-0.parquet")
+    # df.to_parquet(output_path, index=False)
     
-    # print(f"전처리된 역학 데이터를 {output_dir} 위치에 10개의 파트로 나누어 저장했습니다.")
+    print(f"전처리된 역학 데이터를 {output_dir} 위치에 10개의 파트로 나누어 저장했습니다.")
 
-    # # Sample List 파일 생성
-    # sample_list = df['eid'].unique()
-    # sample_list = pd.DataFrame(sample_list, columns=['eid'])
-    # # txt 파일로 저장
-    # os.makedirs(os.path.join(os.path.dirname(demo_file), "sample_lists"), exist_ok=True)
-    # sample_list.to_csv(os.path.join(os.path.dirname(demo_file), "sample_lists", "ukb-sample-list.txt"), index=False)
+    # Sample List 파일 생성
+    sample_list = df['eid'].unique()
+    sample_list = pd.DataFrame(sample_list, columns=['eid'])
+    # txt 파일로 저장
+    os.makedirs(os.path.join(os.path.dirname(demo_file), "sample_lists"), exist_ok=True)
+    sample_list.to_csv(os.path.join(os.path.dirname(demo_file), "sample_lists", "ukb-sample-list.txt"), index=False)
 
-    # # UkbDatset 클래스 초기화에 사용하기 위한 subject IDs to exclude 파일 생성
+    # # UkbDatset 클래스 초기화에서 제외할 subject IDs 명시적으로 지정
     # opt_outs = os.path.join(os.path.dirname(demo_file), "ukb-opt-outs.csv")
     # subject_ids = df.columns.drop('eid')
     # subject_ids = pd.DataFrame(subject_ids, columns=['eid'])
     # subject_ids.to_csv(opt_outs, index=False)
-
     # opt_outs = os.path.join(os.path.dirname(demo_file), "ukb-opt-outs.csv")
     # pd.DataFrame(df['eid'].unique()).to_csv(opt_outs, index=False)
 
