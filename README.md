@@ -106,13 +106,17 @@ python process_ukb_data.py
 
 분석이 성공적으로 완료되면 `OUTPUT_BASE_PATH` 아래에 지정된 하위 디렉토리 (예: `./results/E11/67bm/time_agnostic/`)에 다음과 같은 결과 파일들이 생성됩니다.
 
-*   `report.html`: 분석 결과 요약 및 시각화 (Bokeh 차트 포함).
-*   `metrics.csv`: 모델 성능 지표 (AUC, F1 등).
-*   `model_coeffs.csv`: 특성 중요도 또는 로지스틱 회귀 계수.
-*   `scores.parquet`: 각 대상자에 대한 예측 점수 및 코호트 할당 정보.
-*   `qv_significance.parquet`: (QV 분석 활성화 시) 유전자 기반 희귀 변이 분석 결과.
-*   `stuff.pickle`: ROC/PR 곡선 데이터 등 추가 정보.
-
+*   **`report.html`**: Bokeh 라이브러리를 사용하여 생성된 시각화 차트 (모델 성능 곡선, 특성 중요도 등)와 분석 설정, 요약 정보가 포함된 대화형 HTML 보고서.
+*   **`metrics.csv`**: 각 교차 검증 폴드 또는 훈련 복제본(replica)에 대한 모델 성능 지표 (AUC, F1 점수, 민감도, 특이도, 정밀도, 평균 정밀도)와 데이터 관련 지표 (특성 수, 훈련 데이터 크기, 케이스 수).
+*   **`model_coeffs.csv`**: 훈련된 모든 모델(일반 모델, 성별 특화 모델, 로지스틱 회귀 모델, 그리고 각 훈련 복제본)의 특성 중요도 또는 로지스틱 회귀 계수.
+*   **`scores.parquet`**: UK Biobank 전체 대상자에 대한 예측 결과.
+    *   `score`: 모든 훈련 복제본의 예측 확률 평균값.
+    *   `replicaN`: 각 개별 복제본 모델의 예측 확률값.
+    *   `is_case`: 훈련/테스트 코호트 구성 시 해당 대상자가 케이스(1)였는지 컨트롤(0)이었는지 여부.
+    *   `known`: 해당 대상자가 알려진 케이스(1)인지 여부 (질병 코드 기준).
+    *   `cohort_LX`: 예측 점수 및 NCR(Novel Case Ratio) 기준에 따라 생성된 예측 코호트 할당 정보 (예: `cohort_L0`, `cohort_L1`).
+*   **`qv_significance.parquet`**: (QV 분석이 활성화되고 예측 코호트가 생성된 경우) 알려진 케이스 그룹과 예측된 코호트 그룹 각각에 대해 수행된 유전자 기반 희귀 변이 집단 분석(rare variant collapsing analysis)의 결과 (p-값, 오즈비 등).
+*   **`stuff.pickle`**: 분석 과정에서 생성된 추가적인 객체들을 저장하는 Pickle 파일. 주로 ROC 곡선 및 Precision-Recall 곡선을 그리기 위한 데이터 포인트 (`roc_curves`, `pr_curves`), 선택된 최적 하이퍼파라미터 (`best_hyper_params`), 사용된 기본 추정기 종류 (`estimator_type`) 등.
 
 ## 5. 주요 디버깅 기록 및 이슈 사항
 
