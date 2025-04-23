@@ -50,31 +50,33 @@ def prepare_demographic_data(demo_file):
     else:
         sep = None
 
-    print("파일의 총 데이터 수를 계산 중...(파일의 크기가 클 수록 시간이 오래 걸릴 수 있습니다.)")
+    # print("파일의 총 데이터 수를 계산 중...(파일의 크기가 클 수록 시간이 오래 걸릴 수 있습니다.)")
 
-    file_size = os.path.getsize(demo_file)
-    with open(demo_file, 'r', encoding='utf-8') as f:
-        total_rows = 0
-        bytes_read = 0
-        last_percent = 0
+    # file_size = os.path.getsize(demo_file)
+    # with open(demo_file, 'r', encoding='utf-8') as f:
+    #     total_rows = 0
+    #     bytes_read = 0
+    #     last_percent = 0
         
-        header = next(f)
-        bytes_read += len(header.encode('utf-8'))
+    #     header = next(f)
+    #     bytes_read += len(header.encode('utf-8'))
         
-        for line in f:
-            total_rows += 1
-            bytes_read += len(line.encode('utf-8'))
+    #     for line in f:
+    #         total_rows += 1
+    #         bytes_read += len(line.encode('utf-8'))
             
-            current_percent = int(bytes_read * 100 / file_size)
-            if current_percent >= last_percent + 10:
-                print(f"진행 상황: {current_percent}% (현재까지 {total_rows}행 처리)")
-                last_percent = current_percent
+    #         current_percent = int(bytes_read * 100 / file_size)
+    #         if current_percent >= last_percent + 10:
+    #             print(f"진행 상황: {current_percent}% (현재까지 {total_rows}행 처리)")
+    #             last_percent = current_percent
 
-    print(f"총 데이터 수: {total_rows}")
+    # print(f"총 데이터 수: {total_rows}")
     
-    user_input = input(f"총 {total_rows}개의 행이 있습니다. 전체 데이터를 로드하시겠습니까? (1: 전체 데이터 로드, 2: 일부 데이터 로드): ")
+    # user_input = input(f"총 {total_rows}개의 행이 있습니다. 전체 데이터를 로드하시겠습니까? (1: 전체 데이터 로드, 2: 일부 데이터 로드): ")
+    user_input = input("전체 데이터를 로드하시겠습니까? (1: 전체 데이터 로드, 2: 일부 데이터 로드): ")
     # user_input = '2'
     # rows_to_load = 1000
+    total_rows = 502366
     if user_input == '1':
         print("전체 데이터를 로드합니다...")
         if sep:
@@ -84,7 +86,7 @@ def prepare_demographic_data(demo_file):
     elif user_input == '2':
         while True:
             try:
-                rows_to_load = input(f"몇 개의 데이터를 로드하시겠습니까? (1 ~ {total_rows} 사이의 수): ")
+                rows_to_load = input(f"몇 개의 데이터를 로드하시겠습니까?")
                 rows_to_load = int(rows_to_load)
                 if 1 <= rows_to_load <= total_rows:
                     break
